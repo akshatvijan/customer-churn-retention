@@ -4,11 +4,9 @@ import pandas as pd
 from pathlib import Path
 
 
-# Project root directory
-BASE_DIR = Path(__file__).resolve().parents[3]
+BASE_DIR = Path.cwd()
 
 MODEL_PATH = BASE_DIR / "models" / "churn_model.joblib"
-
 
 # Load trained ML pipeline
 model = joblib.load(MODEL_PATH)
