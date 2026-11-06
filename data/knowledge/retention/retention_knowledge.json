@@ -1,0 +1,53 @@
+
+[
+    {
+        "text": "For customers showing high inactivity, consider a personalised re-engagement message reminding them about the platform and available services. The message should be relevant to the customer's previous activity. Do not assume that inactivity confirms churn.",
+        "category": "retention_strategy",
+        "source": "project_retention_playbook",
+        "metadata": {
+            "action_type": "personalised_reengagement",   
+            "risk_level": "low",
+            "requires_approval": true
+        }
+    },
+    {
+        "text": "For customers with repeated order cancellations, consider investigating whether additional support or clarification is needed before recommending a retention incentive. Do not assume the reason for cancellation when supporting evidence is unavailable.",
+        "category": "retention_strategy",
+        "source": "project_retention_playbook",
+        "metadata": {
+            "action_type": "customer_support_followup",
+            "risk_level": "low",
+            "requires_approval": true
+        }
+    },
+    {
+        "text": "For customers with high average order value, consider a personalised loyalty reward or exclusive benefit. The reward must be checked against customer eligibility, campaign budget and business policy before approval.",
+        "category": "retention_strategy",
+        "source": "project_retention_playbook",
+        "metadata": {
+            "action_type": "loyalty_reward",
+            "risk_level": "medium",
+            "requires_approval": true
+        }
+    },
+    {
+        "text": "For customers with low order frequency, consider a relevant product recommendation or re-engagement campaign. Recommendations should be based on available customer information and must not assume product preferences that are not present in the data.",
+        "category": "retention_strategy",
+        "source": "project_retention_playbook",
+        "metadata": {
+            "action_type": "product_recommendation",
+            "risk_level": "low",
+            "requires_approval": true
+        }
+    },
+    {
+        "text": "Retention actions must follow business eligibility rules, campaign budgets and approval requirements. An AI-generated recommendation is only a candidate action. It must not be treated as an approved offer or executed automatically.",
+        "category": "retention_strategy",
+        "source": "project_retention_playbook",
+        "metadata": {
+            "action_type": "policy_compliance",
+            "risk_level": "high",
+            "requires_approval": true
+        }
+    }
+]

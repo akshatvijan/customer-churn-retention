@@ -1,0 +1,65 @@
+[
+  {
+    "text": "Customer inactivity analysis: Days since last order measures the time elapsed since the customer's most recent purchase. A longer inactivity period may indicate reduced purchasing engagement. Interpret it together with total orders and customer history. It is a risk indicator, not confirmed churn.",
+    "category": "inactivity",
+    "source": "project_playbook",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "days_since_last_order"
+    }
+  },
+  {
+    "text": "Order frequency analysis: Total orders provide a measure of the customer's purchase frequency. A low order count may indicate limited repeat purchasing. Interpret it with inactivity and other available customer indicators. Do not assume dissatisfaction from order count alone.",
+    "category": "order_frequency",
+    "source": "project_playbook",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "total_orders"
+    }
+  },
+  {
+    "text": "Order cancellation analysis: Cancelled orders can indicate a potential customer or fulfilment concern. Evaluate cancelled orders in relation to total orders. The aggregate cancellation count does not explain why an order was cancelled. Do not invent a cancellation reason.",
+    "category": "cancellations",
+    "source": "project_playbook",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "cancelled_orders"
+    }
+  },
+  {
+    "text": "Delivered order analysis: Delivered order count provides context about completed purchases. Compare delivered orders with total orders and cancelled orders. Aggregate counts cannot identify individual delivery events or specific delivery problems.",
+    "category": "delivery_indicators",
+    "source": "project_playbook",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "delivered_orders"
+    }
+  },
+  {
+    "text": "Average order value analysis: Average order value describes the average monetary value of customer orders. Interpret it alongside total orders and purchase activity. It does not independently prove customer satisfaction, dissatisfaction or churn.",
+    "category": "customer_value",
+    "source": "project_playbook",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "average_order_value"
+    }
+  },
+  {
+    "text": "Evidence limitations: The Olist customer feature profile used by this project contains total orders, delivered orders, cancelled orders, last order date, average order value, days since last order and a retention risk proxy. It does not provide individual delivery delays, review comments or complaint reasons. Investigation must remain within the available evidence.",
+    "category": "evidence_limitations",
+    "source": "project_data_guidelines",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "data_reliability"
+    }
+  },
+  {
+    "text": "Retention risk interpretation: An inactivity-based retention risk proxy is not an observed churn label or a confirmed prediction. Describe it as an inactivity signal. Avoid presenting correlation or an indicator as a proven cause of customer behaviour.",
+    "category": "risk_interpretation",
+    "source": "project_data_guidelines",
+    "metadata": {
+      "agent": "fulfilment",
+      "topic": "retention_risk_proxy"
+    }
+  }
+]
