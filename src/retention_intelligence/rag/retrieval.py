@@ -6,10 +6,18 @@ from retention_intelligence.services.milvus_service import (
     COLLECTION_NAME
 )
 
-
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-embedding_model = SentenceTransformer(MODEL_NAME)
+embedding_model = None
+
+
+def get_embedding_model():
+    global embedding_model
+
+    if embedding_model is None:
+        embedding_model = SentenceTransformer(MODEL_NAME)
+
+    return embedding_model
 
 
 def retrieve_knowledge(
@@ -24,7 +32,9 @@ def retrieve_knowledge(
     if top_k < 1:
         raise ValueError("top_k must be at least 1")
 
-    query_embedding = embedding_model.encode(
+    model = get_embedding_model()
+
+    query_embedding = model.encode(
         query,
         normalize_embeddings=True,
         convert_to_numpy=True
