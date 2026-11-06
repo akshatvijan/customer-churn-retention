@@ -1,5 +1,5 @@
 
-from sentence_transformers import SentenceTransformer
+
 
 from retention_intelligence.services.milvus_service import (
     get_milvus_client,
@@ -15,6 +15,7 @@ def get_embedding_model():
     global embedding_model
 
     if embedding_model is None:
+        from sentence_transformers import SentenceTransformer
         embedding_model = SentenceTransformer(MODEL_NAME)
 
     return embedding_model
