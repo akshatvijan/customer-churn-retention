@@ -34,18 +34,22 @@ def get_embedding_model():
     except Exception:
         pass
 
-    from sentence_transformers import SentenceTransformer
+    try:
+        from sentence_transformers import SentenceTransformer
 
-    log("[RAG] Loading embedding model...")
+        log("[RAG] Loading embedding model...")
 
-    model = SentenceTransformer(
-        MODEL_NAME,
-        device="cpu"
-    )
+        model = SentenceTransformer(
+            MODEL_NAME,
+            device="cpu"
+        )
 
-    log("[RAG] Embedding model loaded.")
+        log("[RAG] Embedding model loaded.")
 
-    return model
+        return model
+    except Exception as exc:
+        log(f"[RAG] SentenceTransformer unavailable ({exc}). Using instant fallback knowledge.")
+        return None
 
 
 def _local_fallback_knowledge(
@@ -125,71 +129,72 @@ def retrieve_knowledge(
             raise ValueError("Invalid category filter")
 
     try:
-        log("[RAG] Generating query embedding...")
         model = get_embedding_model()
 
-        query_embedding = model.encode(
-            query.strip(),
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=False
-        )
-
-        client = get_milvus_client()
-
-        try:
-            search_filter = (
-                f'category == "{category}"'
-                if category
-                else ""
+        if model is not None:
+            log("[RAG] Generating query embedding...")
+            query_embedding = model.encode(
+                query.strip(),
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False
             )
 
-            log("[RAG] Searching Milvus...")
+            client = get_milvus_client()
 
-            results = client.search(
-                collection_name=COLLECTION_NAME,
-                data=[query_embedding.tolist()],
-                anns_field="embedding",
-                filter=search_filter,
-                limit=top_k,
-                output_fields=[
-                    "text",
-                    "category",
-                    "source",
-                    "metadata"
-                ],
-                search_params={
-                    "metric_type": "COSINE",
-                    "params": {}
-                },
-                timeout=MILVUS_TIMEOUT
-            )
-
-            documents = []
-
-            if results:
-                for result in results[0]:
-                    entity = result.get("entity", {})
-
-                    documents.append({
-                        "text": entity.get("text"),
-                        "category": entity.get("category"),
-                        "source": entity.get("source"),
-                        "metadata": entity.get("metadata", {}),
-                        "similarity_score": float(
-                            result.get("distance", 0)
-                        )
-                    })
-
-            if documents:
-                log(f"[RAG] Retrieved {len(documents)} documents.")
-                return documents
-
-        finally:
             try:
-                client.close()
-            except Exception:
-                pass
+                search_filter = (
+                    f'category == "{category}"'
+                    if category
+                    else ""
+                )
+
+                log("[RAG] Searching Milvus...")
+
+                results = client.search(
+                    collection_name=COLLECTION_NAME,
+                    data=[query_embedding.tolist()],
+                    anns_field="embedding",
+                    filter=search_filter,
+                    limit=top_k,
+                    output_fields=[
+                        "text",
+                        "category",
+                        "source",
+                        "metadata"
+                    ],
+                    search_params={
+                        "metric_type": "COSINE",
+                        "params": {}
+                    },
+                    timeout=MILVUS_TIMEOUT
+                )
+
+                documents = []
+
+                if results:
+                    for result in results[0]:
+                        entity = result.get("entity", {})
+
+                        documents.append({
+                            "text": entity.get("text"),
+                            "category": entity.get("category"),
+                            "source": entity.get("source"),
+                            "metadata": entity.get("metadata", {}),
+                            "similarity_score": float(
+                                result.get("distance", 0)
+                            )
+                        })
+
+                if documents:
+                    log(f"[RAG] Retrieved {len(documents)} documents.")
+                    return documents
+
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     except Exception as exc:
         log(f"[RAG] Vector retrieval unavailable ({exc}). Using local knowledge fallback.")

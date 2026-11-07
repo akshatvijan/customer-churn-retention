@@ -2,14 +2,12 @@
 pandas
 numpy
 scikit-learn
-shap
 fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
 sqlalchemy
 psycopg[binary]
-psycopg2-binary
 python-dotenv
 langgraph
 langchain-core

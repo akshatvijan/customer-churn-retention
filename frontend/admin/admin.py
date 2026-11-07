@@ -10,7 +10,11 @@ if str(ROOT_DIR) not in sys.path:
 import streamlit as st
 import pandas as pd
 
-from frontend.shared.api_client import get_request, post_request
+from frontend.shared.api_client import (
+    get_request,
+    post_request,
+    _resolve_api_base_url
+)
 
 
 # ---------------- PAGE CONFIGURATION ----------------
@@ -87,19 +91,26 @@ page = st.sidebar.radio(
 
 st.sidebar.divider()
 
-st.sidebar.write("Backend Connection")
+st.sidebar.write("**Backend Connection**")
+current_url = _resolve_api_base_url()
+st.sidebar.caption(f"Target: `{current_url}`")
 
-if st.sidebar.button("Check API Status"):
+custom_url = st.sidebar.text_input(
+    "Backend API URL",
+    value=current_url,
+    key="custom_api_base_url",
+    help="Enter the URL of your deployed FastAPI backend (e.g. https://your-backend.onrender.com) or local URL (http://127.0.0.1:8000)"
+)
+
+if st.sidebar.button("Test Connection"):
 
     health = get_request("/health")
 
     if not isinstance(health, dict) or health.get("error"):
-
-        st.sidebar.error("Backend disconnected")
-
+        err = health.get("error", "Disconnected") if isinstance(health, dict) else str(health)
+        st.sidebar.error(f"❌ {err}")
     else:
-
-        st.sidebar.success("Backend connected")
+        st.sidebar.success("✅ Backend connected!")
 
 
 # ---------------- HEADER ----------------
@@ -270,9 +281,11 @@ elif page == "Investigation":
     else:
         _err = _health.get("error", "Unknown error") if isinstance(_health, dict) else str(_health)
         st.error(
-            f"⚠️ Backend is not reachable: {_err}\n\n"
-            "Please ensure the FastAPI server is running and "
-            "`API_BASE_URL` is correctly set in your Streamlit secrets or environment variables."
+            f"⚠️ **Backend is not reachable:** {_err}\n\n"
+            f"**Current Target URL:** `{_resolve_api_base_url()}`\n\n"
+            "👉 **How to fix:**\n"
+            "1. If your Render backend is waking up from a cold start, wait 30–60 seconds and refresh.\n"
+            "2. If your backend URL has changed, update it using the **Backend API URL** field in the left sidebar."
         )
 
     source = st.selectbox(
@@ -822,9 +835,11 @@ elif page == "AI Search":
     else:
         _err = _health.get("error", "Unknown error") if isinstance(_health, dict) else str(_health)
         st.error(
-            f"⚠️ Backend is not reachable: {_err}\n\n"
-            "Please ensure the FastAPI server is running and "
-            "`API_BASE_URL` is correctly set in your Streamlit secrets or environment variables."
+            f"⚠️ **Backend is not reachable:** {_err}\n\n"
+            f"**Current Target URL:** `{_resolve_api_base_url()}`\n\n"
+            "👉 **How to fix:**\n"
+            "1. If your Render backend is waking up from a cold start, wait 30–60 seconds and refresh.\n"
+            "2. If your backend URL has changed, update it using the **Backend API URL** field in the left sidebar."
         )
 
     st.caption(

@@ -3,6 +3,15 @@ import streamlit as st
 import requests
 
 def _resolve_api_base_url() -> str:
+    # 0. User override in Streamlit session state
+    try:
+        if hasattr(st, "session_state") and st.session_state.get("custom_api_base_url"):
+            val = str(st.session_state["custom_api_base_url"]).strip()
+            if val:
+                return val.rstrip("/")
+    except Exception:
+        pass
+
     # 1. Environment variable (Render, Railway, Docker, Streamlit Cloud env var)
     env_url = os.getenv("API_BASE_URL")
     if env_url:
