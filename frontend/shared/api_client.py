@@ -10,25 +10,52 @@ def _resolve_api_base_url() -> str:
 
     # 2. Streamlit secrets (.streamlit/secrets.toml)
     try:
-        if hasattr(st, "secrets") and "API_BASE_URL" in st.secrets:
-            return str(st.secrets["API_BASE_URL"]).rstrip("/")
+        if hasattr(st, "secrets"):
+            if "API_BASE_URL" in st.secrets:
+                return str(st.secrets["API_BASE_URL"]).rstrip("/")
+            if "api_base_url" in st.secrets:
+                return str(st.secrets["api_base_url"]).rstrip("/")
+            if "general" in st.secrets and "API_BASE_URL" in st.secrets["general"]:
+                return str(st.secrets["general"]["API_BASE_URL"]).rstrip("/")
     except Exception:
         pass
 
     # 3. Default local FastAPI server
     return "http://127.0.0.1:8000"
 
-API_BASE_URL = _resolve_api_base_url()
+def _format_http_error(error: requests.exceptions.HTTPError) -> str:
+    status_code = getattr(error.response, "status_code", "Unknown")
+    text = ""
+    try:
+        data = error.response.json()
+        if isinstance(data, dict):
+            if "detail" in data:
+                text = str(data["detail"])
+            elif "error" in data:
+                text = str(data["error"])
+            elif "message" in data:
+                text = str(data["message"])
+    except Exception:
+        text = getattr(error.response, "text", "")
+
+    if not text:
+        reason = getattr(error.response, "reason", "")
+        if status_code in (502, 503, 504):
+            text = f"{reason or 'Service Unavailable'}. The backend server may be waking up from a cold start, deploying, or restarting. Please try again in 30 seconds."
+        else:
+            text = reason or "Server returned an empty error response"
+
+    return f"API error ({status_code}): {text}"
 
 def get_request(endpoint: str):
     """
     Send GET request to FastAPI backend.
     """
-
+    base_url = _resolve_api_base_url()
     try:
         response = requests.get(
-            f"{API_BASE_URL}{endpoint}",
-            timeout=30
+            f"{base_url}{endpoint}",
+            timeout=45
         )
 
         response.raise_for_status()
@@ -37,7 +64,7 @@ def get_request(endpoint: str):
 
     except requests.exceptions.ConnectionError:
         return {
-            "error": "Cannot connect to backend. Start FastAPI first."
+            "error": f"Cannot connect to backend at {base_url}. Ensure FastAPI is running and accessible."
         }
 
     except requests.exceptions.Timeout:
@@ -47,7 +74,7 @@ def get_request(endpoint: str):
 
     except requests.exceptions.HTTPError as error:
         return {
-            "error": f"API error: {error.response.text}"
+            "error": _format_http_error(error)
         }
 
     except requests.exceptions.RequestException as error:
@@ -60,10 +87,10 @@ def post_request(endpoint: str, payload: dict):
     """
     Send POST request to FastAPI backend.
     """
-
+    base_url = _resolve_api_base_url()
     try:
         response = requests.post(
-            f"{API_BASE_URL}{endpoint}",
+            f"{base_url}{endpoint}",
             json=payload,
             timeout=180
         )
@@ -74,17 +101,17 @@ def post_request(endpoint: str, payload: dict):
 
     except requests.exceptions.ConnectionError:
         return {
-            "error": "Cannot connect to backend. Start FastAPI first."
+            "error": f"Cannot connect to backend at {base_url}. Ensure FastAPI is running and accessible."
         }
 
     except requests.exceptions.Timeout:
         return {
-            "error": "Backend request timed out."
+            "error": "Backend request timed out after 180 seconds. The server might be under heavy load."
         }
 
     except requests.exceptions.HTTPError as error:
         return {
-            "error": f"API error: {error.response.text}"
+            "error": _format_http_error(error)
         }
 
     except requests.exceptions.RequestException as error:

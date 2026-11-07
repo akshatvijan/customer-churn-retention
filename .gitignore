@@ -56,3 +56,6 @@ data/raw/
 # Test and coverage artifacts
 .coverage
 htmlcov/
+
+# Streamlit secrets (keep example, ignore real secrets)
+.streamlit/secrets.toml

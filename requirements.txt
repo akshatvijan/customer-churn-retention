@@ -18,6 +18,10 @@ mcp[cli]
 pymilvus
 sentence-transformers
 httpx
+streamlit
+requests
+joblib
 pytest
+pytest-asyncio
 pytest-cov
 langfuse

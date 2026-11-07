@@ -263,6 +263,18 @@ elif page == "Investigation":
 
     st.subheader("Customer Investigation")
 
+    # --- Backend health indicator ---
+    _health = get_request("/health")
+    if isinstance(_health, dict) and not _health.get("error"):
+        st.success("✅ Backend is online and ready.")
+    else:
+        _err = _health.get("error", "Unknown error") if isinstance(_health, dict) else str(_health)
+        st.error(
+            f"⚠️ Backend is not reachable: {_err}\n\n"
+            "Please ensure the FastAPI server is running and "
+            "`API_BASE_URL` is correctly set in your Streamlit secrets or environment variables."
+        )
+
     source = st.selectbox(
         "Customer Source",
         ["olist", "telco"],
@@ -297,7 +309,10 @@ elif page == "Investigation":
             st.session_state.investigation_result = None
             st.session_state.approval_result = None
 
-            with st.spinner("Running AI investigation..."):
+            with st.spinner(
+                "Running AI investigation — this may take 60-90 seconds "
+                "on first run while the backend wakes up..."
+            ):
 
                 result = post_request(
                     "/api/v1/customers/investigate",
@@ -310,10 +325,17 @@ elif page == "Investigation":
 
             elif result.get("error") or result.get("detail"):
 
-                st.error(
-                    result.get("error")
-                    or result.get("detail")
-                )
+                err_msg = result.get("error") or result.get("detail") or "Unknown error"
+                st.error(err_msg)
+
+                # Helpful hint for cold-start / connection errors
+                if "connect" in str(err_msg).lower() or "502" in str(err_msg) or "503" in str(err_msg):
+                    st.info(
+                        "💡 **Tip:** The backend may still be starting up. "
+                        "Wait 30 seconds and try again. "
+                        "If the problem persists, check that the FastAPI server is running and "
+                        "`API_BASE_URL` is correctly configured."
+                    )
 
             else:
 
@@ -818,7 +840,8 @@ elif page == "AI Search":
         else:
 
             with st.spinner(
-                "Searching customer data and knowledge base..."
+                "Searching customer data and knowledge base — "
+                "this may take 30-60 seconds on first run..."
             ):
 
                 result = post_request(
@@ -836,10 +859,14 @@ elif page == "AI Search":
 
             elif result.get("error") or result.get("detail"):
 
-                st.error(
-                    result.get("error")
-                    or result.get("detail")
-                )
+                err_msg = result.get("error") or result.get("detail") or "Unknown error"
+                st.error(err_msg)
+
+                if "connect" in str(err_msg).lower() or "502" in str(err_msg) or "503" in str(err_msg):
+                    st.info(
+                        "💡 **Tip:** The backend may still be starting up. "
+                        "Wait 30 seconds and try again."
+                    )
 
             else:
 
