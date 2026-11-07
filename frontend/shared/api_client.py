@@ -1,10 +1,24 @@
+import os
 import streamlit as st
 import requests
 
-API_BASE_URL = st.secrets.get(
-    "API_BASE_URL",
-    "http://127.0.0.1:8000"
-).rstrip("/")
+def _resolve_api_base_url() -> str:
+    # 1. Environment variable (Render, Railway, Docker, Streamlit Cloud env var)
+    env_url = os.getenv("API_BASE_URL")
+    if env_url:
+        return env_url.rstrip("/")
+
+    # 2. Streamlit secrets (.streamlit/secrets.toml)
+    try:
+        if hasattr(st, "secrets") and "API_BASE_URL" in st.secrets:
+            return str(st.secrets["API_BASE_URL"]).rstrip("/")
+    except Exception:
+        pass
+
+    # 3. Default local FastAPI server
+    return "http://127.0.0.1:8000"
+
+API_BASE_URL = _resolve_api_base_url()
 
 def get_request(endpoint: str):
     """

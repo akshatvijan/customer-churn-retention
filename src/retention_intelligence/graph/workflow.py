@@ -190,4 +190,31 @@ def build_retention_workflow():
 
     checkpointer = InMemorySaver()
 
-    return workflow.compile(checkpointer=checkpointer)
+    app = workflow.compile(checkpointer=checkpointer)
+
+    original_ainvoke = app.ainvoke
+    original_invoke = app.invoke
+
+    def _ensure_config(input, config):
+        if config is None:
+            thread_id = input.get("customer_id", "default") if isinstance(input, dict) else "default"
+            return {"configurable": {"thread_id": str(thread_id)}}
+        if isinstance(config, dict):
+            if "configurable" not in config:
+                config["configurable"] = {"thread_id": "default"}
+            elif "thread_id" not in config["configurable"]:
+                config["configurable"]["thread_id"] = "default"
+        return config
+
+    async def wrapped_ainvoke(input, config=None, **kwargs):
+        config = _ensure_config(input, config)
+        return await original_ainvoke(input, config=config, **kwargs)
+
+    def wrapped_invoke(input, config=None, **kwargs):
+        config = _ensure_config(input, config)
+        return original_invoke(input, config=config, **kwargs)
+
+    app.ainvoke = wrapped_ainvoke
+    app.invoke = wrapped_invoke
+
+    return app

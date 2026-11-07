@@ -1,4 +1,5 @@
 
+import asyncio
 import json
 
 from dotenv import load_dotenv
@@ -7,19 +8,23 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from retention_intelligence.agents.state import RetentionState
 from retention_intelligence.services.mcp_client import call_mcp_tool
+from retention_intelligence.rag.retrieval import retrieve_knowledge
 from retention_intelligence.guardrails.validation_pipeline import (
     validate_retention_output
 )
 
-
 load_dotenv()
-
 
 model = ChatGroq(
     model="openai/gpt-oss-120b",
-    temperature=0
+    temperature=0,
+    timeout=45,
+    max_retries=1
 )
 
+MCP_TIMEOUT = 40
+LLM_TIMEOUT = 50
+GUARDRAILS_TIMEOUT = 15
 
 ALLOWED_ACTION_TYPES = {
     "personalised_reengagement",
@@ -28,10 +33,24 @@ ALLOWED_ACTION_TYPES = {
     "product_recommendation"
 }
 
+DEFAULT_RETENTION_KNOWLEDGE = [
+    {
+        "text": "For customers exhibiting churn or inactivity risk, propose personalised re-engagement offering contract review, discounted plan options, or support check-ins.",
+        "category": "retention_strategy",
+        "metadata": {"action_type": "personalised_reengagement", "requires_approval": True}
+    },
+    {
+        "text": "For customers with service complaints, cancellation history or lack of tech support, offer dedicated customer support follow-up.",
+        "category": "retention_strategy",
+        "metadata": {"action_type": "customer_support_followup", "requires_approval": True}
+    },
+    {
+        "text": "For long-tenure customers or high order volume customers, propose loyalty rewards requiring human approval.",
+        "category": "retention_strategy",
+        "metadata": {"action_type": "loyalty_reward", "requires_approval": True}
+    }
+]
 
-# ---------------------------------
-# 1. JSON Response Parser
-# ---------------------------------
 
 def parse_json_response(response_text: str) -> dict:
 
@@ -65,10 +84,6 @@ def parse_json_response(response_text: str) -> dict:
 
     return parsed
 
-
-# ---------------------------------
-# 2. Normalize Retention MCP Response
-# ---------------------------------
 
 def normalize_retention_mcp_response(result):
 
@@ -131,10 +146,6 @@ def normalize_retention_mcp_response(result):
     )
 
 
-# ---------------------------------
-# 3. Retention Strategy Agent
-# ---------------------------------
-
 async def retention_strategy_agent(state: RetentionState):
 
     customer_data = state.get("customer_data", {})
@@ -149,18 +160,12 @@ async def retention_strategy_agent(state: RetentionState):
         or state.get("customer_id")
     )
 
-    print("\n========== RETENTION STRATEGY DEBUG ==========")
-    print("Customer ID:", customer_id)
-    print("Source:", source)
-    print("Customer Data:", customer_data)
-    print("Churn Prediction:", churn_prediction)
-
-    # ---------------------------------
-    # 4. Basic Input Validation
-    # ---------------------------------
+    print(
+        f"[RETENTION] Starting investigation: {customer_id}",
+        flush=True
+    )
 
     if source not in ("olist", "telco"):
-
         return {
             "candidate_actions": [],
             "retention_strategy": {},
@@ -168,7 +173,6 @@ async def retention_strategy_agent(state: RetentionState):
         }
 
     if not customer_data:
-
         return {
             "candidate_actions": [],
             "retention_strategy": {},
@@ -176,7 +180,6 @@ async def retention_strategy_agent(state: RetentionState):
         }
 
     if not churn_prediction:
-
         return {
             "candidate_actions": [],
             "retention_strategy": {},
@@ -185,9 +188,7 @@ async def retention_strategy_agent(state: RetentionState):
 
     try:
 
-        # ---------------------------------
-        # 5. Retrieve Retention Knowledge Through MCP
-        # ---------------------------------
+        # 1. Retrieve retention knowledge through MCP
 
         retrieval_query = (
             f"Retention strategy for {source} customer. "
@@ -197,51 +198,35 @@ async def retention_strategy_agent(state: RetentionState):
             f"{json.dumps(fulfilment_analysis, default=str)}"
         )
 
-        print("\nCalling Retention MCP Server...")
+        print("[RETENTION] Calling knowledge retrieval...", flush=True)
 
-        raw_mcp_result = await call_mcp_tool(
-            server_name="retention",
-            tool_name="search_retention_knowledge",
-            arguments={
-                "query": retrieval_query,
-                "top_k": 5,
-                "category": "retention_strategy"
-            }
-        )
-
-        print("\n========== RETENTION MCP DEBUG ==========")
-        print("RAW RESPONSE:")
-        print(repr(raw_mcp_result))
-
-        mcp_result = normalize_retention_mcp_response(
-            raw_mcp_result
-        )
-
-        print("\nNORMALIZED RESPONSE:")
-        print(mcp_result)
-
-        if mcp_result.get("status") != "success":
-
-            raise ValueError(
-                mcp_result.get(
-                    "message",
-                    "Retention MCP knowledge search failed"
+        try:
+            retrieved_knowledge = retrieve_knowledge(
+                query=retrieval_query,
+                top_k=5,
+                category="retention_strategy"
+            )
+        except Exception as rag_err:
+            if "Milvus connection failed" in str(rag_err):
+                raise
+            try:
+                raw_mcp_result = await asyncio.wait_for(
+                    call_mcp_tool(
+                        server_name="retention",
+                        tool_name="search_retention_knowledge",
+                        arguments={
+                            "query": retrieval_query,
+                            "top_k": 5,
+                            "category": "retention_strategy"
+                        }
+                    ),
+                    timeout=MCP_TIMEOUT
                 )
-            )
-
-        retrieved_knowledge = mcp_result.get("results", [])
-
-        if not isinstance(retrieved_knowledge, list):
-
-            raise ValueError(
-                "Retention MCP results must be a list"
-            )
-
-        if not retrieved_knowledge:
-
-            raise ValueError(
-                "No retention knowledge retrieved from Milvus"
-            )
+                mcp_result = normalize_retention_mcp_response(raw_mcp_result)
+                retrieved_knowledge = mcp_result.get("results", []) if isinstance(mcp_result, dict) else []
+            except Exception as mcp_err:
+                print(f"[RETENTION] Knowledge search fallback: {mcp_err}", flush=True)
+                retrieved_knowledge = []
 
         knowledge_context = [
             {
@@ -249,23 +234,18 @@ async def retention_strategy_agent(state: RetentionState):
                 "metadata": document.get("metadata", {})
             }
             for document in retrieved_knowledge
-            if isinstance(document, dict)
+            if isinstance(document, dict) and document.get("text")
         ]
 
         if not knowledge_context:
-
-            raise ValueError(
-                "Retrieved retention knowledge is invalid"
-            )
+            knowledge_context = DEFAULT_RETENTION_KNOWLEDGE
 
         print(
-            "\nRetrieved knowledge documents:",
-            len(knowledge_context)
+            f"[RETENTION] Retrieved {len(knowledge_context)} documents",
+            flush=True
         )
 
-        # ---------------------------------
-        # 6. System Prompt
-        # ---------------------------------
+        # 2. System prompt
 
         system_prompt = """
 You are a Customer Retention Strategy Agent.
@@ -298,41 +278,24 @@ STRICT RULES:
    - loyalty_reward
    - product_recommendation
 
-8. If the customer has high inactivity or a high retention
-   risk proxy, consider personalised_reengagement when
-   the available evidence supports it.
+8. For Olist customers with inactivity or retention risk proxy, generate personalised_reengagement.
+   For Telco customers with churn risk, month-to-month contracts, or tenure considerations, generate personalised_reengagement.
 
-9. If cancelled_orders is greater than zero, consider
-   customer_support_followup, but do not invent cancellation
-   reasons.
+9. If cancelled_orders is greater than zero (Olist), or if the customer lacks TechSupport or OnlineSecurity (Telco), consider customer_support_followup.
 
-10. Suggest loyalty_reward only when customer evidence
-    provides a reasonable basis for considering a reward.
-    Mention that eligibility and campaign budget must
-    be verified.
+10. Suggest loyalty_reward when customer evidence provides a basis (e.g. tenure >= 12 months in Telco, or high order volume in Olist). Mention that eligibility and campaign budget must be verified.
 
-11. Product recommendations must not assume preferences
-    or popular products that are not in the supplied evidence.
+11. Product recommendations should propose relevant features or add-ons supported by the profile (e.g. tech support or device protection for Telco customers without them).
 
-12. If evidence is insufficient for a particular action,
-    do not generate that action.
+12. Always generate 1 to 3 feasible candidate actions supported by the customer evidence.
 
-13. Missing delivery or complaint data does not mean
-    there were no delivery issues or complaints.
-    Mention these limitations where relevant.
+13. Missing delivery or complaint data does not mean there were no issues. Mention limitations where relevant.
 
 14. Never claim that an action will definitely prevent churn.
 
-15. Never promise an unapproved reward or discount.
+15. Never promise an unapproved reward or discount. Every candidate action must have requires_approval: true.
 
-16. Use numeric values exactly as supplied.
-    Do not invent currency symbols or amounts.
-
-17. Generate candidate actions when available evidence
-    supports a valid recommendation.
-
-18. If no action is supported, return an empty list and
-    explain the reason in evidence_limitations.
+16. Use numeric values exactly as supplied. Do not invent currency symbols or amounts.
 
 Return ONLY a valid JSON object in this structure:
 
@@ -357,9 +320,7 @@ Priority must be high, medium or low.
 Do not include markdown or text outside the JSON object.
 """
 
-        # ---------------------------------
-        # 7. Human Prompt
-        # ---------------------------------
+        # 3. Human prompt
 
         human_prompt = f"""
 CUSTOMER SOURCE:
@@ -384,72 +345,51 @@ Analyze the evidence and generate suitable candidate
 retention actions following all system rules.
 """
 
-        # ---------------------------------
-        # 8. Invoke Groq LLM
-        # ---------------------------------
+        # 4. Groq LLM call
 
-        print("\nInvoking Groq Retention Strategy Model...")
+        print("[RETENTION] Calling Groq model...", flush=True)
 
-        response = await model.ainvoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=human_prompt)
-        ])
+        response = await asyncio.wait_for(
+            model.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=human_prompt)
+            ]),
+            timeout=LLM_TIMEOUT
+        )
 
         response_content = response.content
 
-        print("\n========== GROQ RESPONSE ==========")
-        print(response_content)
-
         if not isinstance(response_content, str):
-
             raise ValueError(
                 "Groq returned an unexpected response content type"
             )
 
-        # ---------------------------------
-        # 9. Parse LLM Response
-        # ---------------------------------
+        # 5. Parse response
 
-        parsed_response = parse_json_response(
-            response_content
-        )
+        parsed_response = parse_json_response(response_content)
 
         strategy_summary = parsed_response.get(
-            "strategy_summary",
-            ""
+            "strategy_summary", ""
         )
 
         generated_actions = parsed_response.get(
-            "candidate_actions",
-            []
+            "candidate_actions", []
         )
 
         evidence_limitations = parsed_response.get(
-            "evidence_limitations",
-            []
+            "evidence_limitations", []
         )
 
         if not isinstance(strategy_summary, str):
-            raise ValueError(
-                "strategy_summary must be a string"
-            )
+            raise ValueError("strategy_summary must be a string")
 
         if not isinstance(generated_actions, list):
-            raise ValueError(
-                "candidate_actions must be a list"
-            )
+            raise ValueError("candidate_actions must be a list")
 
         if not isinstance(evidence_limitations, list):
-            raise ValueError(
-                "evidence_limitations must be a list"
-            )
+            raise ValueError("evidence_limitations must be a list")
 
-        print("\nLLM GENERATED ACTIONS:")
-        print(generated_actions)
-
-        # ---------------------------------
-        # 10. Filter Candidate Actions
-        # ---------------------------------
+        # 6. Filter candidate actions
 
         candidate_actions = []
         rejected_generation_actions = []
@@ -457,23 +397,19 @@ retention actions following all system rules.
         for index, action in enumerate(generated_actions):
 
             if not isinstance(action, dict):
-
                 rejected_generation_actions.append({
                     "index": index,
                     "reason": "Action is not a dictionary"
                 })
-
                 continue
 
             action_type = action.get("action_type")
 
             if action_type not in ALLOWED_ACTION_TYPES:
-
                 rejected_generation_actions.append({
                     "index": index,
                     "reason": f"Unsupported action type: {action_type}"
                 })
-
                 continue
 
             priority = action.get("priority", "medium")
@@ -484,34 +420,25 @@ retention actions following all system rules.
             description = action.get("description", "")
             reason = action.get("reason", "")
 
-            if (
-                not isinstance(description, str)
-                or not description.strip()
-            ):
-
+            if not isinstance(description, str) or not description.strip():
                 rejected_generation_actions.append({
                     "index": index,
                     "reason": "Missing or invalid description"
                 })
-
                 continue
 
             if not isinstance(reason, str) or not reason.strip():
-
                 rejected_generation_actions.append({
                     "index": index,
                     "reason": "Missing or invalid reason"
                 })
-
                 continue
 
             if action.get("requires_approval") is not True:
-
                 rejected_generation_actions.append({
                     "index": index,
                     "reason": "requires_approval must be true"
                 })
-
                 continue
 
             candidate_actions.append({
@@ -523,39 +450,16 @@ retention actions following all system rules.
                 "status": "candidate"
             })
 
-        print("\nFILTERED CANDIDATE ACTIONS:")
-        print(candidate_actions)
+        print(
+            f"[RETENTION] Accepted {len(candidate_actions)} candidate actions",
+            flush=True
+        )
 
-        print("\nREJECTED GENERATED ACTIONS:")
-        print(rejected_generation_actions)
-
-        # ---------------------------------
-        # 11. Handle Empty Candidate Actions
-        # ---------------------------------
-
+        # 7. Check candidate actions
         if not candidate_actions:
-
             return {
                 "candidate_actions": [],
-                "retention_strategy": {
-                    "customer_id": customer_id,
-                    "source": source,
-                    "strategy_summary": strategy_summary,
-                    "evidence_limitations": evidence_limitations,
-                    "debug": {
-                        "retrieved_knowledge_count": len(
-                            retrieved_knowledge
-                        ),
-                        "llm_generated_action_count": len(
-                            generated_actions
-                        ),
-                        "accepted_action_count": 0,
-                        "rejected_generation_actions": (
-                            rejected_generation_actions
-                        ),
-                        "llm_response": response_content
-                    }
-                },
+                "retention_strategy": {},
                 "errors": [
                     "No valid retention candidate actions generated. "
                     f"Generated: {len(generated_actions)}, "
@@ -564,9 +468,7 @@ retention actions following all system rules.
                 ]
             }
 
-        # ---------------------------------
-        # 12. Prepare Guardrails Input
-        # ---------------------------------
+        # 8. Guardrails validation
 
         agent_output = {
             "strategy_summary": strategy_summary,
@@ -574,27 +476,22 @@ retention actions following all system rules.
             "evidence_limitations": evidence_limitations
         }
 
-        # ---------------------------------
-        # 13. Guardrails Validation
-        # ---------------------------------
+        print("[RETENTION] Running guardrails...", flush=True)
 
-        print("\nRunning retention output validation...")
-
-        validation_result = validate_retention_output(
-            agent_output
+        validation_result = await asyncio.wait_for(
+            asyncio.to_thread(
+                validate_retention_output,
+                agent_output
+            ),
+            timeout=GUARDRAILS_TIMEOUT
         )
 
-        print("\nGUARDRAILS RESULT:")
-        print(validation_result)
-
         if not isinstance(validation_result, dict):
-
             raise ValueError(
                 f"Unexpected guardrails response: {validation_result}"
             )
 
         if not validation_result.get("is_valid"):
-
             return {
                 "candidate_actions": [],
                 "retention_strategy": {
@@ -614,35 +511,28 @@ retention actions following all system rules.
         validated_output = validation_result.get("data")
 
         if not isinstance(validated_output, dict):
-
             raise ValueError(
                 "Guardrails returned invalid or missing validated data"
             )
 
         candidate_actions = validated_output.get(
-            "candidate_actions",
-            []
+            "candidate_actions", []
         )
 
         strategy_summary = validated_output.get(
-            "strategy_summary",
-            strategy_summary
+            "strategy_summary", strategy_summary
         )
 
         evidence_limitations = validated_output.get(
-            "evidence_limitations",
-            evidence_limitations
+            "evidence_limitations", evidence_limitations
         )
 
         if not candidate_actions:
-
             raise ValueError(
                 "Guardrails returned an empty candidate_actions list"
             )
 
-        # ---------------------------------
-        # 14. Build Final Retention Strategy
-        # ---------------------------------
+        # 9. Build final retention strategy
 
         retention_strategy = {
             "customer_id": customer_id,
@@ -666,18 +556,33 @@ retention actions following all system rules.
             }
         }
 
-        print("\nRETENTION STRATEGY SUCCESS")
-        print("Candidate action count:", len(candidate_actions))
-        print("============================================\n")
-
-        # ---------------------------------
-        # 15. Return Agent Output
-        # ---------------------------------
+        print(
+            f"[RETENTION] Successfully completed: {customer_id}",
+            flush=True
+        )
 
         return {
             "candidate_actions": candidate_actions,
             "retention_strategy": retention_strategy,
             "errors": []
+        }
+
+    except asyncio.TimeoutError:
+
+        error_message = "Retention strategy timed out"
+
+        print(f"[RETENTION] {error_message}", flush=True)
+
+        return {
+            "candidate_actions": [],
+            "retention_strategy": {
+                "customer_id": customer_id,
+                "source": source,
+                "debug": {
+                    "failure_stage": "timeout"
+                }
+            },
+            "errors": [error_message]
         }
 
     except Exception as error:
@@ -686,19 +591,14 @@ retention actions following all system rules.
             f"{type(error).__name__}: {str(error)}"
         )
 
-        print("\nRETENTION STRATEGY ERROR:")
-        print(error_message)
-        print("============================================\n")
+        print(
+            f"[RETENTION] ERROR: {error_message}",
+            flush=True
+        )
 
         return {
             "candidate_actions": [],
-            "retention_strategy": {
-                "customer_id": customer_id,
-                "source": source,
-                "debug": {
-                    "failure_stage": "retention_strategy_agent"
-                }
-            },
+            "retention_strategy": {},
             "errors": [
                 f"Retention strategy failed: {error_message}"
             ]

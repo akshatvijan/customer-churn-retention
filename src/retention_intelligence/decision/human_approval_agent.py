@@ -14,6 +14,7 @@ def human_approval_agent(state: dict):
         return {
             "human_approval": {
                 "status": "not_required",
+                "pending_actions": [],
                 "approved_actions": [],
                 "rejected_actions": [],
                 "message": "No eligible actions available for approval"
@@ -36,7 +37,8 @@ def human_approval_agent(state: dict):
         pending_actions.append({
             "action_index": index,
             "action": action,
-            "policy_reason": item.get("policy_reason", "")
+            "policy_reason": item.get("policy_reason", ""),
+            "status": "pending"
         })
 
     if not pending_actions:
@@ -44,6 +46,7 @@ def human_approval_agent(state: dict):
         return {
             "human_approval": {
                 "status": "not_required",
+                "pending_actions": [],
                 "approved_actions": [],
                 "rejected_actions": [],
                 "message": "No valid actions available for approval"
@@ -57,13 +60,25 @@ def human_approval_agent(state: dict):
     # Human Approval Interrupt
     # ---------------------------------
 
-    human_response = interrupt({
-        "message": (
-            "Please review and approve or reject "
-            "the proposed retention actions"
-        ),
-        "pending_actions": pending_actions
-    })
+    try:
+        human_response = interrupt({
+            "message": (
+                "Please review and approve or reject "
+                "the proposed retention actions"
+            ),
+            "pending_actions": pending_actions
+        })
+    except RuntimeError:
+        return {
+            "human_approval": {
+                "status": "pending",
+                "pending_actions": pending_actions,
+                "approved_actions": [],
+                "rejected_actions": [],
+                "message": "Awaiting human approval"
+            },
+            "errors": []
+        }
 
     if not isinstance(human_response, dict):
 

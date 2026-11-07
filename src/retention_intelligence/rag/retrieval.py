@@ -1,24 +1,41 @@
 
-
+import sys
+from functools import lru_cache
 
 from retention_intelligence.services.milvus_service import (
     get_milvus_client,
     COLLECTION_NAME
 )
 
+
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-embedding_model = None
+MILVUS_TIMEOUT = 15
 
 
+def log(message: str) -> None:
+    """Send debug logs to STDERR, keeping STDOUT clean for MCP."""
+    print(message, file=sys.stderr, flush=True)
+
+
+@lru_cache(maxsize=1)
 def get_embedding_model():
-    global embedding_model
+    """
+    Load the embedding model only once when required.
+    """
 
-    if embedding_model is None:
-        from sentence_transformers import SentenceTransformer
-        embedding_model = SentenceTransformer(MODEL_NAME)
+    from sentence_transformers import SentenceTransformer
 
-    return embedding_model
+    log("[RAG] Loading embedding model...")
+
+    model = SentenceTransformer(
+        MODEL_NAME,
+        device="cpu"
+    )
+
+    log("[RAG] Embedding model loaded.")
+
+    return model
 
 
 def retrieve_knowledge(
@@ -27,18 +44,28 @@ def retrieve_knowledge(
     category: str | None = None
 ) -> list[dict]:
 
-    if not query or not query.strip():
+    if not isinstance(query, str) or not query.strip():
         raise ValueError("Search query cannot be empty")
 
-    if top_k < 1:
-        raise ValueError("top_k must be at least 1")
+    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
+        raise ValueError("top_k must be between 1 and 20")
+
+    if category is not None:
+        if not isinstance(category, str) or not category.strip():
+            raise ValueError("Category must be a non-empty string")
+
+        if '"' in category or "\\" in category:
+            raise ValueError("Invalid category filter")
+
+    log("[RAG] Generating query embedding...")
 
     model = get_embedding_model()
 
     query_embedding = model.encode(
-        query,
+        query.strip(),
         normalize_embeddings=True,
-        convert_to_numpy=True
+        convert_to_numpy=True,
+        show_progress_bar=False
     )
 
     client = get_milvus_client()
@@ -49,6 +76,8 @@ def retrieve_knowledge(
             if category
             else ""
         )
+
+        log("[RAG] Searching Milvus...")
 
         results = client.search(
             collection_name=COLLECTION_NAME,
@@ -65,21 +94,27 @@ def retrieve_knowledge(
             search_params={
                 "metric_type": "COSINE",
                 "params": {}
-            }
+            },
+            timeout=MILVUS_TIMEOUT
         )
 
         documents = []
 
-        for result in results[0]:
-            entity = result.get("entity", {})
+        if results:
+            for result in results[0]:
+                entity = result.get("entity", {})
 
-            documents.append({
-                "text": entity.get("text"),
-                "category": entity.get("category"),
-                "source": entity.get("source"),
-                "metadata": entity.get("metadata", {}),
-                "similarity_score": float(result.get("distance", 0))
-            })
+                documents.append({
+                    "text": entity.get("text"),
+                    "category": entity.get("category"),
+                    "source": entity.get("source"),
+                    "metadata": entity.get("metadata", {}),
+                    "similarity_score": float(
+                        result.get("distance", 0)
+                    )
+                })
+
+        log(f"[RAG] Retrieved {len(documents)} documents.")
 
         return documents
 
