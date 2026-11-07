@@ -2,8 +2,6 @@
 import json
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
-
 from retention_intelligence.services.milvus_service import (
     get_milvus_client
 )
@@ -103,6 +101,12 @@ def ingest_knowledge(knowledge_type: str):
         ]
 
         # Generate Hugging Face embeddings
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise RuntimeError(
+                "sentence-transformers is not installed. Install it with `pip install sentence-transformers` to run offline knowledge ingestion."
+            )
         embedding_model = SentenceTransformer(MODEL_NAME)
 
         embeddings = embedding_model.encode(
