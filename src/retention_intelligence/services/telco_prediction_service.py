@@ -1,18 +1,22 @@
-import joblib
-import pandas as pd
 
 from pathlib import Path
+from functools import lru_cache
 
 
 BASE_DIR = Path.cwd()
-
 MODEL_PATH = BASE_DIR / "models" / "churn_model.joblib"
 
-# Load trained ML pipeline
-model = joblib.load(MODEL_PATH)
+
+@lru_cache(maxsize=1)
+def load_churn_model():
+    import joblib
+
+    return joblib.load(MODEL_PATH)
 
 
 def predict_telco_churn(customer_data: dict):
+
+    import pandas as pd
 
     customer_data = customer_data.copy()
 
@@ -26,6 +30,9 @@ def predict_telco_churn(customer_data: dict):
     # Convert input into DataFrame
     input_df = pd.DataFrame([customer_data])
 
+    # Load model only when prediction is requested
+    model = load_churn_model()
+
     # Get churn probability
     churn_probability = float(
         model.predict_proba(input_df)[0][1]
@@ -37,10 +44,8 @@ def predict_telco_churn(customer_data: dict):
     # Determine risk level
     if churn_probability >= 0.60:
         risk_level = "high"
-
     elif churn_probability >= 0.40:
         risk_level = "medium"
-
     else:
         risk_level = "low"
 
