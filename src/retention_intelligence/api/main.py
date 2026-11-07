@@ -1,4 +1,14 @@
 
+import sys
+from pathlib import Path
+
+_SRC_DIR = Path(__file__).resolve().parents[2]
+_ROOT_DIR = _SRC_DIR.parent
+
+for _p in (str(_SRC_DIR), str(_ROOT_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

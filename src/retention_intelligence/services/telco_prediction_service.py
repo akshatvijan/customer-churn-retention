@@ -3,8 +3,18 @@ from pathlib import Path
 from functools import lru_cache
 
 
-BASE_DIR = Path.cwd()
-MODEL_PATH = BASE_DIR / "models" / "churn_model.joblib"
+def _find_model_path() -> Path:
+    candidates = [
+        Path.cwd() / "models" / "churn_model.joblib",
+        Path(__file__).resolve().parents[3] / "models" / "churn_model.joblib",
+        Path(__file__).resolve().parents[2] / "models" / "churn_model.joblib",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+MODEL_PATH = _find_model_path()
 
 
 @lru_cache(maxsize=1)

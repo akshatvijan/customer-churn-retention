@@ -44,6 +44,9 @@ def _format_http_error(error: requests.exceptions.HTTPError) -> str:
             text = f"{reason or 'Service Unavailable'}. The backend server may be waking up from a cold start, deploying, or restarting. Please try again in 30 seconds."
         else:
             text = reason or "Server returned an empty error response"
+    elif text.strip().startswith("<!DOCTYPE") or text.strip().startswith("<html"):
+        reason = getattr(error.response, "reason", "Bad Gateway")
+        text = f"{reason}. The backend server is currently starting up, deploying, or temporarily unavailable. Please wait 1-2 minutes and retry."
 
     return f"API error ({status_code}): {text}"
 

@@ -815,6 +815,18 @@ elif page == "AI Search":
 
     st.subheader("AI Search")
 
+    # --- Backend health indicator ---
+    _health = get_request("/health")
+    if isinstance(_health, dict) and not _health.get("error"):
+        st.success("✅ Backend is online and ready.")
+    else:
+        _err = _health.get("error", "Unknown error") if isinstance(_health, dict) else str(_health)
+        st.error(
+            f"⚠️ Backend is not reachable: {_err}\n\n"
+            "Please ensure the FastAPI server is running and "
+            "`API_BASE_URL` is correctly set in your Streamlit secrets or environment variables."
+        )
+
     st.caption(
         "Ask questions about customers, churn, fulfilment and retention "
         "using connected MCP tools and the knowledge base."

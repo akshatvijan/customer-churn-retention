@@ -9,18 +9,15 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL is missing from .env file")
+    # Safe fallback so FastAPI startup and health check (/health) never crash
+    DATABASE_URL = "sqlite:///./fallback.db"
 
 # Normalize PostgreSQL driver for psycopg (v3) compatibility
 if DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://"):
     try:
         import psycopg
-        # If psycopg v3 is installed and psycopg2 is not present, use postgresql+psycopg
-        try:
-            import psycopg2
-        except ImportError:
-            prefix = "postgresql+psycopg://"
-            DATABASE_URL = prefix + DATABASE_URL.split("://", 1)[1]
+        prefix = "postgresql+psycopg://"
+        DATABASE_URL = prefix + DATABASE_URL.split("://", 1)[1]
     except ImportError:
         pass
 

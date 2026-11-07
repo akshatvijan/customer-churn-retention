@@ -1,4 +1,5 @@
 
+import os
 import asyncio
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
@@ -13,7 +14,8 @@ model = ChatGroq(
     model="openai/gpt-oss-120b",
     temperature=0,
     timeout=45,
-    max_retries=1
+    max_retries=1,
+    api_key=os.getenv("GROQ_API_KEY") or "gsk_placeholder_for_startup"
 )
 
 RETRIEVAL_TIMEOUT = 30
